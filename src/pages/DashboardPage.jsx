@@ -33,13 +33,24 @@ export default function DashboardPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
-      const [prof, pmts, wal] = await Promise.all([getProfile(), getMyPayments(), getWallet()]);
+      const [prof, pmts] = await Promise.all([getProfile(), getMyPayments()]);
       setProfile(prof);
       setPayments(pmts.payments || []);
-      setWallet(wal);
       setWithdrawPhone(prof.phone || '');
-    } catch (err) { setError(err.response?.data?.error || 'Failed to load'); }
+      // Load wallet separately so a wallet error doesn't kill the whole page
+      try {
+        const wal = await getWallet();
+        setWallet(wal);
+      } catch (walErr) {
+        const msg = walErr.response?.data?.error || walErr.message || 'Wallet unavailable';
+        setError('Wallet error: ' + msg);
+      }
+    } catch (err) {
+      const msg = err.response?.data?.error || err.message || 'Failed to load';
+      setError(msg);
+    }
     setLoading(false);
   }, []);
 
@@ -465,7 +476,7 @@ export default function DashboardPage() {
             {[
               { label:'Phone',      value: profile.phone || '-' },
               { label:'Email',      value: profile.email || '-' },
-              { label:'Commission', value: profile.commission_type === 'flat' ? 'KSh ' + Number(profile.commission_value).toLocaleString() + ' per subscription' : profile.commission_value + '% of revenue' },
+              { label:'Commission', value: profile.commission_value + '% of revenue' },
               { label:'Schools',    value: (profile.school_count || 0) + ' assigned' },
             ].map((item, i) => (
               <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:'1px solid #F0F0F0' }}>
