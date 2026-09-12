@@ -41,4 +41,14 @@ export async function requestPayment(body) {
   return data;
 }
 
+export async function getWallet() {
+  const { data } = await api.get('/api/sales-rep/wallet');
+  return data;
+}
+
+export async function requestWithdrawal(body) {
+  const { data } = await api.post('/api/sales-rep/wallet/withdraw', body, { timeout: 60000 });
+  return data;
+}
+
 export default api;
