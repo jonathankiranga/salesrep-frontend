@@ -38,7 +38,7 @@ export default function DashboardPage() {
       const [prof, pmts] = await Promise.all([getProfile(), getMyPayments()]);
       setProfile(prof);
       setPayments(pmts.payments || []);
-      setWithdrawPhone(prof.phone || '');
+      setWPhone(prof.phone || '');
       // Load wallet separately so a wallet error doesn't kill the whole page
       try {
         const wal = await getWallet();
