@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { getProfile, getCommissionSummary, getMyPayments, requestPayment, getWallet, requestWithdrawal } from '../utils/api.js';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const SC = {
   pending:    { bg: '#FFF8E1', color: '#F57F17' },
@@ -76,6 +78,119 @@ export default function DashboardPage() {
       await load();
     } catch (err) { setError(err.response?.data?.error || 'Withdrawal failed'); }
     setWith(false);
+  }
+
+  function downloadStatement() {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const purple = [123, 79, 155];
+    const grey   = [100, 100, 100];
+    const now    = new Date();
+
+    // Header bar
+    doc.setFillColor(...purple);
+    doc.rect(0, 0, 210, 22, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Commission Wallet Statement', 14, 14);
+
+    // Rep info
+    doc.setTextColor(...grey);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Rep: ${profile?.full_name || ''}  |  Phone: ${profile?.phone || ''}  |  Generated: ${now.toLocaleDateString('en-KE', { day:'2-digit', month:'short', year:'numeric' })}`, 14, 30);
+
+    // Summary boxes
+    const boxes = [
+      { label: 'Available Balance', value: `KSh ${Number(wallet.balance).toLocaleString()}`, x: 14 },
+      { label: 'Total Earned',      value: `KSh ${Number(wallet.total_credited).toLocaleString()}`, x: 80 },
+      { label: 'Total Withdrawn',   value: `KSh ${Number(wallet.total_withdrawn).toLocaleString()}`, x: 146 },
+    ];
+    boxes.forEach(b => {
+      doc.setFillColor(244, 240, 246);
+      doc.roundedRect(b.x, 36, 58, 18, 2, 2, 'F');
+      doc.setTextColor(...grey);
+      doc.setFontSize(7);
+      doc.text(b.label, b.x + 4, 42);
+      doc.setTextColor(...purple);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text(b.value, b.x + 4, 50);
+      doc.setFont('helvetica', 'normal');
+    });
+
+    // Transaction history table
+    doc.setTextColor(50, 50, 50);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Transaction History', 14, 64);
+
+    const txnRows = (wallet.transactions || []).map(t => [
+      new Date(t.created_at).toLocaleDateString('en-KE', { day:'2-digit', month:'short', year:'numeric' }),
+      t.description,
+      t.txn_type.charAt(0).toUpperCase() + t.txn_type.slice(1),
+      (t.txn_type === 'credit' ? '+' : '-') + 'KSh ' + Number(t.amount).toLocaleString(),
+      'KSh ' + Number(t.balance_after).toLocaleString(),
+    ]);
+
+    autoTable(doc, {
+      startY: 68,
+      head: [['Date', 'Description', 'Type', 'Amount', 'Balance']],
+      body: txnRows.length > 0 ? txnRows : [['', 'No transactions yet', '', '', '']],
+      styles: { fontSize: 8, cellPadding: 3 },
+      headStyles: { fillColor: purple, textColor: 255, fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 24 },
+        1: { cellWidth: 72 },
+        2: { cellWidth: 18 },
+        3: { cellWidth: 28 },
+        4: { cellWidth: 28 },
+      },
+      didParseCell(data) {
+        if (data.section === 'body' && data.column.index === 3) {
+          const val = String(data.cell.raw || '');
+          data.cell.styles.textColor = val.startsWith('+') ? [46, 125, 50] : [198, 40, 40];
+        }
+      },
+      alternateRowStyles: { fillColor: [250, 250, 252] },
+    });
+
+    // Withdrawal history table
+    const afterTxn = doc.lastAutoTable.finalY + 10;
+    doc.setTextColor(50, 50, 50);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Withdrawal History', 14, afterTxn);
+
+    const wdRows = (wallet.withdrawals || []).map(w => [
+      new Date(w.requested_at).toLocaleDateString('en-KE', { day:'2-digit', month:'short', year:'numeric' }),
+      'KSh ' + Number(w.amount).toLocaleString(),
+      w.mpesa_phone,
+      w.mpesa_reference || '-',
+      w.status.charAt(0).toUpperCase() + w.status.slice(1),
+      w.completed_at ? new Date(w.completed_at).toLocaleDateString('en-KE', { day:'2-digit', month:'short', year:'numeric' }) : '-',
+    ]);
+
+    autoTable(doc, {
+      startY: afterTxn + 4,
+      head: [['Date', 'Amount', 'M-Pesa Phone', 'Reference', 'Status', 'Completed']],
+      body: wdRows.length > 0 ? wdRows : [['', 'No withdrawals yet', '', '', '', '']],
+      styles: { fontSize: 8, cellPadding: 3 },
+      headStyles: { fillColor: purple, textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [250, 250, 252] },
+    });
+
+    // Footer
+    const pageCount = doc.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(7);
+      doc.setTextColor(180, 180, 180);
+      doc.text(`Page ${i} of ${pageCount}  •  SmarterNow Apps`, 14, 292);
+    }
+
+    const filename = `wallet-statement-${(profile?.full_name || 'rep').replace(/\s+/g, '-').toLowerCase()}-${now.toISOString().slice(0,10)}.pdf`;
+    doc.save(filename);
   }
 
   const alreadyRequested = payments.some(
@@ -187,7 +302,12 @@ export default function DashboardPage() {
 
           {/* Transaction ledger */}
           <div className='card overflow-hidden'>
-            <div className='p-4 font-semibold border-b' style={{ borderColor:'#F0F0F0' }}>Transaction history</div>
+            <div className='p-4 font-semibold border-b flex items-center justify-between' style={{ borderColor:'#F0F0F0' }}>
+              <span>Transaction history</span>
+              <button onClick={downloadStatement} className='btn-secondary' style={{ padding:'6px 14px', fontSize:'12px' }}>
+                ⬇ Download Statement PDF
+              </button>
+            </div>
             <div className='table-wrap'>
               <table className='data-table'>
                 <thead><tr><th>Date</th><th>Description</th><th>Type</th><th>Amount</th><th>Balance</th></tr></thead>
